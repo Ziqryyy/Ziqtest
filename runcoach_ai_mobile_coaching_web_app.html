@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RunCoach AI - Dynamic iOS Running Coach</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        strava: '#FC4C02',
+                        'strava-dark': '#E03E00',
+                        iosBg: '#0f172a',
+                        iosCard: '#1e293b',
+                        iosSubcard: '#334155'
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom scrollbar & iOS touch feel */
+        ::-webkit-scrollbar { display: none; }
+        body {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+        .active-tab {
+            color: #FC4C02;
+        }
+        .glow-orange {
+            box-shadow: 0 0 20px rgba(252, 76, 2, 0.25);
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans pb-24 antialiased selection:bg-strava selection:text-white">
+
+    <!-- App Header -->
+    <header class="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 px-4 py-3 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <div class="bg-strava p-2 rounded-xl text-white shadow-lg shadow-strava/30">
+                <i data-lucide="activity" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white leading-tight">RunCoach<span class="text-strava">.iOS</span></h1>
+                <p class="text-[10px] text-slate-400">Personal Running Assistant</p>
+            </div>
+        </div>
+        <!-- Strava Quick Badge -->
+        <div id="header-strava-badge" onclick="switchTab('strava')" class="cursor-pointer flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-800 border border-slate-700 hover:border-strava transition-all">
+            <span class="w-2 h-2 rounded-full bg-slate-500" id="badge-dot"></span>
+            <span id="badge-text" class="text-slate-300">Strava Offline</span>
+        </div>
+    </header>
+
+    <!-- Main Dynamic Content Container -->
+    <main id="app-content" class="max-w-md mx-auto px-4 pt-4 space-y-5">
+        <!-- Content dynamically injected via JavaScript -->
+    </main>
+
+    <!-- Fixed iOS Bottom Navigation Bar -->
+    <nav class="fixed bottom-0 left-0 right-0 z-50 bg-slate-900/90 backdrop-blur-lg border-t border-slate-800 max-w-md mx-auto px-2 py-2 flex justify-around items-center">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="flex flex-col items-center gap-1 p-2 rounded-xl text-slate-400 hover:text-slate-200 transition-colors w-16">
+            <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+            <span class="text-[10px] font-medium">Beranda</span>
+        </button>
+        <button onclick="switchTab('schedule')" id="nav-schedule" class="flex flex-col items-center gap-1 p-2 rounded-xl text-slate-400 hover:text-slate-200 transition-colors w-16">
+            <i data-lucide="calendar" class="w-5 h-5"></i>
+            <span class="text-[10px] font-medium">Jadwal</span>
+        </button>
+        <button onclick="switchTab('program')" id="nav-program" class="flex flex-col items-center gap-1 p-2 rounded-xl text-slate-400 hover:text-slate-200 transition-colors w-16">
+            <i data-lucide="target" class="w-5 h-5"></i>
+            <span class="text-[10px] font-medium">Program</span>
+        </button>
+        <button onclick="switchTab('strava')" id="nav-strava" class="flex flex-col items-center gap-1 p-2 rounded-xl text-slate-400 hover:text-slate-200 transition-colors w-16">
+            <i data-lucide="zap" class="w-5 h-5"></i>
+            <span class="text-[10px] font-medium">Strava</span>
+        </button>
+    </nav>
+
+    <!-- Notification Toast Modal -->
+    <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 hidden transition-all duration-300 w-11/12 max-w-sm">
+        <div class="bg-slate-800 border border-strava/50 shadow-2xl rounded-2xl p-3.5 flex items-start gap-3">
+            <div id="toast-icon" class="p-2 rounded-xl bg-strava/20 text-strava">
+                <i data-lucide="bell" class="w-5 h-5"></i>
+            </div>
+            <div class="flex-1">
+                <h4 id="toast-title" class="text-xs font-bold text-white">Notifikasi</h4>
+                <p id="toast-msg" class="text-xs text-slate-300 mt-0.5">Pesan notifikasi aplikasi.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script Logic -->
+    <script>
+        // Default App State
+        const defaultState = {
+            user: {
+                name: "Pelari iPhone",
+                level: "beginner", // beginner, casual, intermediate
+                targetDistance: "5k", // 5k, 10k, 21k, 42k
+                baselinePace: "07:30", // mm:ss
+                currentWeek: 1
+            },
+            strava: {
+                isConnected: false,
+                clientId: "",
+                clientSecret: "",
+                athleteName: "iPhone Runner",
+                athleteId: "ST-88910",
+                lastSync: null
+            },
+            schedule: [],
+            stravaActivities: []
+        };
+
+        let state = JSON.parse(localStorage.getItem('runcoach_state')) || defaultState;
+
+        function saveState() {
+            localStorage.setItem('runcoach_state', JSON.stringify(state));
+            updateHeaderBadge();
+        }
+
+        // Generate Training Schedule Based on User Profile
+        function generateScheduleIfNeeded() {
+            if (state.schedule && state.schedule.length > 0) return;
+
+            const dist = state.user.targetDistance;
+            const lvl = state.user.level;
+
+            // Template Workout Rules
+            let weeks = 4;
+            let scheduleData = [];
+
+            const workoutPresets = {
+                beginner: {
+                    "5k": [
+                        { day: "Senin", type: "Rest", title: "Istirahat Total", desc: "Pemulihan otot pasca latihan.", targetKm: 0, targetPace: "-" },
+                        { day: "Selasa", type: "Easy", title: "Easy Jog / Walk-Run", desc: "Lari santai 1 min, jalan 1 min.", targetKm: 2.5, targetPace: "07:30 - 08:30" },
+                        { day: "Rabu", type: "Rest", title: "Istirahat / Mobility", desc: "Peregangan ringan.", targetKm: 0, targetPace: "-" },
+                        { day: "Kamis", type: "Easy", title: "Easy Run Consistency", desc: "Jaga ritme napas tetap santai.", targetKm: 3.0, targetPace: "07:30 - 08:30" },
+                        { day: "Jumat", type: "Rest", title: "Istirahat", desc: "Persiapan Long Run.", targetKm: 0, targetPace: "-" },
+                        { day: "Sabtu", type: "Long", title: "Weekend Long Run", desc: "Membangun stamina dasar.", targetKm: 4.0, targetPace: "08:00 - 09:00" },
+                        { day: "Minggu", type: "Cross", title: "Walk / Cross Train", desc: "Jalan kaki atau bersepeda santai.", targetKm: 2.0, targetPace: "Free" }
+                    ],
+                    "10k": [
+                        { day: "Senin", type: "Rest", title: "Istirahat", desc: "Recovery", targetKm: 0, targetPace: "-" },
+                        { day: "Selasa", type: "Easy", title: "Easy Aerobic", desc: "Zone 2 Heart Rate", targetKm: 4.0, targetPace: "07:15 - 08:00" },
+                        { day: "Rabu", type: "Rest", title: "Istirahat / Core", desc: "Latihan otot inti", targetKm: 0, targetPace: "-" },
+                        { day: "Kamis", type: "Interval", title: "Short Interval", desc: "4x 400m agak cepat, 200m jalan", targetKm: 4.5, targetPace: "06:15" },
+                        { day: "Jumat", type: "Rest", title: "Istirahat", desc: "Recovery", targetKm: 0, targetPace: "-" },
+                        { day: "Sabtu", type: "Long", title: "Long Run Building", desc: "Pace santai tanpa terengah", targetKm: 6.0, targetPace: "07:45" },
+                        { day: "Minggu", type: "Cross", title: "Active Recovery", desc: "Jalan 30 menit", targetKm: 3.0, targetPace: "Free" }
+                    ]
+                },
+                casual: {
+                    "10k": [
+                        { day: "Senin", type: "Rest", title: "Istirahat", desc: "Rest day", targetKm: 0, targetPace: "-" },
+                        { day: "Selasa", type: "Easy", title: "Easy Pace Run", desc: "Nyaman diajak ngobrol", targetKm: 5.0, targetPace: "06:30" },
+                        { day: "Rabu", type: "Tempo", title: "Tempo Run", desc: "10m Warmup, 15m Tempo Pace, 10m Cooldown", targetKm: 5.0, targetPace: "05:45" },
+                        { day: "Kamis", type: "Rest", title: "Cross Training", desc: "Berenang / Sepeda", targetKm: 0, targetPace: "-" },
+                        { day: "Jumat", type: "Easy", title: "Easy Shakeout", desc: "Lari ringan", targetKm: 4.0, targetPace: "06:40" },
+                        { day: "Sabtu", type: "Long", title: "Long Distance Endurance", desc: "Kunci fisik 10k", targetKm: 8.0, targetPace: "07:00" },
+                        { day: "Minggu", type: "Rest", title: "Istirahat Total", desc: "Rest & Sleep", targetKm: 0, targetPace: "-" }
+                    ],
+                    "21k": [
+                        { day: "Senin", type: "Rest", title: "Istirahat", desc: "Recovery", targetKm: 0, targetPace: "-" },
+                        { day: "Selasa", type: "Easy", title: "Easy Foundation", desc: "Menjaga volume", targetKm: 6.0, targetPace: "06:45" },
+                        { day: "Rabu", type: "Interval", title: "Speed Interval 6x800m", desc: "Rest 90s antar lap", targetKm: 7.0, targetPace: "05:30" },
+                        { day: "Kamis", type: "Easy", title: "Recovery Run", desc: "Ringan", targetKm: 5.0, targetPace: "07:00" },
+                        { day: "Jumat", type: "Rest", title: "Istirahat", desc: "Rest", targetKm: 0, targetPace: "-" },
+                        { day: "Sabtu", type: "Long", title: "Half Marathon Long Run", desc: "Fokus daya tahan", targetKm: 12.0, targetPace: "07:15" },
+                        { day: "Minggu", type: "Cross", title: "Mobility & Stretch", desc: "Yoga / Foam Roll", targetKm: 0, targetPace: "-" }
+                    ]
+                },
+                intermediate: {
+                    "21k": [
+                        { day: "Senin", type: "Rest", title: "Istirahat", desc: "Rest Day", targetKm: 0, targetPace: "-" },
+                        { day: "Selasa", type: "Easy", title: "Easy Aerobic", desc: "Pace stabil", targetKm: 8.0, targetPace: "05:45" },
+                        { day: "Rabu", type: "Tempo", title: "Threshold Tempo", desc: "20 min at Threshold Pace", targetKm: 9.0, targetPace: "05:00" },
+                        { day: "Kamis", type: "Easy", title: "Easy Recovery", desc: "Ringan", targetKm: 6.0, targetPace: "06:15" },
+                        { day: "Jumat", type: "Rest", title: "Istirahat", desc: "Rest", targetKm: 0, targetPace: "-" },
+                        { day: "Sabtu", type: "Long", title: "Progressive Long Run", desc: "Meningkat di 3 km terakhir", targetKm: 15.0, targetPace: "06:00" },
+                        { day: "Minggu", type: "Easy", title: "Recovery Shakeout", desc: "Lari santai minggu pagi", targetKm: 4.0, targetPace: "06:30" }
+                    ],
+                    "42k": [
+                        { day: "Senin", type: "Rest", title: "Istirahat", desc: "Rest Day", targetKm: 0, targetPace: "-" },
+                        { day: "Selasa", type: "Easy", title: "Marathon Base Run", desc: "Volume builder", targetKm: 10.0, targetPace: "05:50" },
+                        { day: "Rabu", type: "Interval", title: "Yasso 800s (5 reps)", desc: "Simulasi Pace Marathon", targetKm: 10.0, targetPace: "04:50" },
+                        { day: "Kamis", type: "Easy", title: "Medium Easy", desc: "Zone 2", targetKm: 8.0, targetPace: "06:00" },
+                        { day: "Jumat", type: "Rest", title: "Istirahat", desc: "Carbo Loading & Rest", targetKm: 0, targetPace: "-" },
+                        { day: "Sabtu", type: "Long", title: "Marathon Long Simulation", desc: "Simulasi nutrisi & hidrasi", targetKm: 22.0, targetPace: "06:15" },
+                        { day: "Minggu", type: "Cross", title: "Active Recovery", desc: "Walk / Cycling", targetKm: 5.0, targetPace: "Free" }
+                    ]
+                }
+            };
+
+            // Fallback default if combination doesn't exist
+            let activePreset = (workoutPresets[lvl] && workoutPresets[lvl][dist]) 
+                ? workoutPresets[lvl][dist] 
+                : workoutPresets["beginner"]["5k"];
+
+            state.schedule = activePreset.map((w, index) => ({
+                id: 'workout-' + (index + 1),
+                week: 1,
+                day: w.day,
+                type: w.type,
+                title: w.title,
+                desc: w.desc,
+                targetKm: w.targetKm,
+                targetPace: w.targetPace,
+                status: w.targetKm === 0 ? "Selesai" : "Belum",
+                stravaMatched: false,
+                actualKm: null,
+                actualPace: null
+            }));
+
+            saveState();
+        }
+
+        // Show Toast Notification
+        function showToast(title, msg, icon = "bell") {
+            const toast = document.getElementById("toast");
+            document.getElementById("toast-title").innerText = title;
+            document.getElementById("toast-msg").innerText = msg;
+            
+            toast.classList.remove("hidden");
+            setTimeout(() => {
+                toast.classList.add("hidden");
+            }, 3500);
+        }
+
+        // Header Strava Status
+        function updateHeaderBadge() {
+            const dot = document.getElementById("badge-dot");
+            const txt = document.getElementById("badge-text");
+            if (state.strava.isConnected) {
+                dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+                txt.innerText = "Strava Connected";
+                txt.className = "text-emerald-400 font-medium";
+            } else {
+                dot.className = "w-2 h-2 rounded-full bg-slate-500";
+                txt.innerText = "Connect Strava";
+                txt.className = "text-slate-400 font-medium";
+            }
+        }
+
+        // Navigation Switcher
+        function switchTab(tab) {
+            const content = document.getElementById('app-content');
+            
+            // Highlight Buttons
+            ['dashboard', 'schedule', 'program', 'strava'].forEach(t => {
+                const btn = document.getElementById(`nav-${t}`);
+                if (t === tab) {
+                    btn.classList.add('text-strava');
+                    btn.classList.remove('text-slate-400');
+                } else {
+                    btn.classList.remove('text-strava');
+                    btn.classList.add('text-slate-400');
+                }
+            });
+
+            generateScheduleIfNeeded();
+
+            if (tab === 'dashboard') renderDashboard(content);
+            if (tab === 'schedule') renderSchedule(content);
+            if (tab === 'program') renderProgram(content);
+            if (tab === 'strava') renderStravaSettings(content);
+
+            lucide.createIcons();
+        }
+
+        // RENDER: DASHBOARD
+        function renderDashboard(container) {
+            const completedCount = state.schedule.filter(s => s.status === 'Selesai' && s.targetKm > 0).length;
+            const totalWorkouts = state.schedule.filter(s => s.targetKm > 0).length;
+            const totalKmRun = state.schedule
+                .filter(s => s.status === 'Selesai')
+                .reduce((acc, curr) => acc + (curr.actualKm || curr.targetKm), 0);
+
+            // Find Next Pending Workout
+            const nextWorkout = state.schedule.find(s => s.status === 'Belum' && s.targetKm > 0) || {
+                title: "Semua Latihan Selesai!",
+                day: "Hebat!",
+                targetKm: 0,
+                targetPace: "-",
+                desc: "Kamu sudah menyelesaikan target minggu ini."
+            };
+
+            container.innerHTML = `
+                <!-- Profile Greeting Banner -->
+                <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-800 p-4 rounded-2xl relative overflow-hidden shadow-xl">
+                    <div class="absolute -right-6 -bottom-6 w-24 h-24 bg-strava/10 rounded-full blur-xl pointer-events-none"></div>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] uppercase font-bold tracking-wider text-strava px-2 py-0.5 rounded-full bg-strava/10 border border-strava/20">Target ${state.user.targetDistance.toUpperCase()}</span>
+                            <h2 class="text-xl font-extrabold text-white mt-1">Halo, ${state.user.name}! 👋</h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Level: <span class="text-slate-200 capitalize font-medium">${state.user.level}</span> • Baseline: <span class="text-slate-200 font-medium">${state.user.baselinePace} min/km</span></p>
+                        </div>
+                        <div class="w-12 h-12 rounded-full bg-slate-800 border-2 border-strava/40 flex items-center justify-center text-strava font-bold text-lg shadow-inner">
+                            ${state.user.name.charAt(0)}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Quick Grid -->
+                <div class="grid grid-cols-3 gap-2.5">
+                    <div class="bg-slate-900/90 border border-slate-800/80 p-3 rounded-2xl text-center">
+                        <i data-lucide="footprints" class="w-4 h-4 text-strava mx-auto mb-1"></i>
+                        <span class="text-[10px] text-slate-400 block">Total Jarak</span>
+                        <span class="text-base font-extrabold text-white">${totalKmRun.toFixed(1)} <span class="text-[10px] font-normal text-slate-400">km</span></span>
+                    </div>
+                    <div class="bg-slate-900/90 border border-slate-800/80 p-3 rounded-2xl text-center">
+                        <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400 mx-auto mb-1"></i>
+                        <span class="text-[10px] text-slate-400 block">Sesi Latihan</span>
+                        <span class="text-base font-extrabold text-white">${completedCount}/${totalWorkouts}</span>
+                    </div>
+                    <div class="bg-slate-900/90 border border-slate-800/80 p-3 rounded-2xl text-center">
+                        <i data-lucide="flame" class="w-4 h-4 text-amber-400 mx-auto mb-1"></i>
+                        <span class="text-[10px] text-slate-400 block">Minggu Ke</span>
+                        <span class="text-base font-extrabold text-white">${state.user.currentWeek}</span>
+                    </div>
+                </div>
+
+                <!-- Focus Workout Today -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg space-y-3">
+                    <div class="flex justify-between items-center border-b border-slate-800/80 pb-2">
+                        <div class="flex items-center gap-2">
+                            <span class="p-1.5 rounded-lg bg-strava/20 text-strava">
+                                <i data-lucide="play" class="w-4 h-4 fill-strava"></i>
+                            </span>
+                            <h3 class="text-sm font-bold text-white">Latihan Berikutnya</h3>
+                        </div>
+                        <span class="text-xs font-semibold text-strava bg-strava/10 px-2 py-0.5 rounded-md">${nextWorkout.day}</span>
+                    </div>
+
+                    <div>
+                        <h4 class="text-base font-bold text-slate-100">${nextWorkout.title}</h4>
+                        <p class="text-xs text-slate-400 mt-0.5">${nextWorkout.desc}</p>
+                    </div>
+
+                    ${nextWorkout.targetKm > 0 ? `
+                        <div class="grid grid-cols-2 gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800/50 text-xs">
+                            <div>
+                                <span class="text-slate-500 block text-[10px]">TARGET JARAK</span>
+                                <span class="font-semibold text-slate-200">${nextWorkout.targetKm} km</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-500 block text-[10px]">TARGET PACE</span>
+                                <span class="font-semibold text-slate-200">${nextWorkout.targetPace} /km</span>
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${nextWorkout.targetKm > 0 ? `
+                        <div class="pt-1 flex gap-2">
+                            <button onclick="markManualComplete('${nextWorkout.id}')" class="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-medium py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95">
+                                <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i> Tandai Selesai
+                            </button>
+                            <button onclick="triggerStravaSyncSimulation()" class="flex-1 bg-strava hover:bg-strava-dark text-white font-semibold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-strava/20 transition-all active:scale-95">
+                                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Sync Strava
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Recent Activity Feed -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center px-1">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Aktivitas Terakhir</h3>
+                        <span onclick="switchTab('strava')" class="text-xs text-strava cursor-pointer hover:underline">Lihat Semua</span>
+                    </div>
+
+                    ${state.stravaActivities.length === 0 ? `
+                        <div class="bg-slate-900/50 border border-dashed border-slate-800 rounded-2xl p-6 text-center">
+                            <i data-lucide="rss" class="w-8 h-8 text-slate-600 mx-auto mb-2"></i>
+                            <p class="text-xs text-slate-400">Belum ada aktivitas dari Strava.</p>
+                            <button onclick="triggerStravaSyncSimulation()" class="mt-3 text-xs bg-slate-800 text-strava font-medium px-3 py-1.5 rounded-xl border border-slate-700 hover:border-strava transition-all">
+                                Simulasi Sinkronisasi Strava
+                            </button>
+                        </div>
+                    ` : state.stravaActivities.slice(0, 2).map(act => `
+                        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-9 h-9 rounded-xl bg-strava/10 border border-strava/20 flex items-center justify-center text-strava">
+                                    <i data-lucide="navigation" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-white">${act.title}</h5>
+                                    <p class="text-[10px] text-slate-400">${act.date} • Pace ${act.pace} min/km</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-sm font-black text-white block">${act.distance} km</span>
+                                <span class="text-[9px] text-emerald-400 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Synced</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // RENDER: SCHEDULE
+        function renderSchedule(container) {
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-1">
+                    <div>
+                        <h2 class="text-lg font-bold text-white">Jadwal Minggu Ini</h2>
+                        <p class="text-xs text-slate-400">Target Distance: ${state.user.targetDistance.toUpperCase()}</p>
+                    </div>
+                    <button onclick="resetSchedule()" class="text-[11px] text-slate-400 hover:text-rose-400 border border-slate-800 bg-slate-900 px-2.5 py-1 rounded-lg">
+                        Reset Status
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    ${state.schedule.map(item => `
+                        <div class="bg-slate-900 border ${item.status === 'Selesai' ? 'border-emerald-500/40 bg-slate-900/80' : 'border-slate-800'} rounded-2xl p-3.5 space-y-2.5 transition-all">
+                            <div class="flex justify-between items-center">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black text-slate-300 w-12">${item.day}</span>
+                                    <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${getWorkoutBadgeClass(item.type)}">
+                                        ${item.type}
+                                    </span>
+                                </div>
+                                <button onclick="toggleWorkoutStatus('${item.id}')" class="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${item.status === 'Selesai' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}">
+                                    <i data-lucide="${item.status === 'Selesai' ? 'check-circle-2' : 'circle'}" class="w-3.5 h-3.5"></i>
+                                    <span>${item.status}</span>
+                                </button>
+                            </div>
+
+                            <div>
+                                <h4 class="text-sm font-bold text-white">${item.title}</h4>
+                                <p class="text-xs text-slate-400 mt-0.5">${item.desc}</p>
+                            </div>
+
+                            ${item.targetKm > 0 ? `
+                                <div class="flex justify-between items-center bg-slate-950 p-2 rounded-xl text-xs border border-slate-800/60">
+                                    <span class="text-slate-400 text-[11px]">Jarak: <b class="text-slate-200">${item.targetKm} km</b></span>
+                                    <span class="text-slate-400 text-[11px]">Target Pace: <b class="text-slate-200">${item.targetPace}</b></span>
+                                </div>
+                            ` : ''}
+
+                            ${item.stravaMatched ? `
+                                <div class="text-[10px] text-strava flex items-center gap-1 bg-strava/10 px-2 py-1 rounded-lg border border-strava/20">
+                                    <i data-lucide="zap" class="w-3 h-3"></i> OOTD Strava Sync: Terverifikasi (${item.actualKm}km @ ${item.actualPace})
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function getWorkoutBadgeClass(type) {
+            switch(type) {
+                case 'Easy': return 'bg-blue-500/10 text-blue-400 border border-blue-500/20';
+                case 'Interval': return 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
+                case 'Tempo': return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+                case 'Long': return 'bg-purple-500/10 text-purple-400 border border-purple-500/20';
+                default: return 'bg-slate-800 text-slate-400 border border-slate-700';
+            }
+        }
+
+        // RENDER: PROGRAM & PROFILE
+        function renderProgram(container) {
+            container.innerHTML = `
+                <div class="space-y-1">
+                    <h2 class="text-lg font-bold text-white">Profil & Program Latihan</h2>
+                    <p class="text-xs text-slate-400">Atur kemampuan awal untuk menyesuaikan porsi latihan.</p>
+                </div>
+
+                <form onsubmit="saveProgramSetup(event)" class="space-y-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+                    <!-- Name Input -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Nama Panggilan</label>
+                        <input type="text" id="input-name" value="${state.user.name}" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-strava">
+                    </div>
+
+                    <!-- Level Runner Selection -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Kemampuan Lari Saat Ini</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center justify-between p-3 rounded-xl border cursor-pointer ${state.user.level === 'beginner' ? 'border-strava bg-strava/5' : 'border-slate-800 bg-slate-950'}">
+                                <div class="flex items-center gap-2">
+                                    <input type="radio" name="level" value="beginner" ${state.user.level === 'beginner' ? 'checked' : ''} class="accent-strava">
+                                    <div>
+                                        <span class="text-xs font-bold text-white block">Pemula Total</span>
+                                        <span class="text-[10px] text-slate-400 block">Belum pernah / baru mulai lari</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="flex items-center justify-between p-3 rounded-xl border cursor-pointer ${state.user.level === 'casual' ? 'border-strava bg-strava/5' : 'border-slate-800 bg-slate-950'}">
+                                <div class="flex items-center gap-2">
+                                    <input type="radio" name="level" value="casual" ${state.user.level === 'casual' ? 'checked' : ''} class="accent-strava">
+                                    <div>
+                                        <span class="text-xs font-bold text-white block">Casual Runner</span>
+                                        <span class="text-[10px] text-slate-400 block">Kadang lari 1-2 kali seminggu</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="flex items-center justify-between p-3 rounded-xl border cursor-pointer ${state.user.level === 'intermediate' ? 'border-strava bg-strava/5' : 'border-slate-800 bg-slate-950'}">
+                                <div class="flex items-center gap-2">
+                                    <input type="radio" name="level" value="intermediate" ${state.user.level === 'intermediate' ? 'checked' : ''} class="accent-strava">
+                                    <div>
+                                        <span class="text-xs font-bold text-white block">Intermediate</span>
+                                        <span class="text-[10px] text-slate-400 block">Rutin lari & paham interval/tempo</span>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Target Distance Grid -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Target Jarak Lomba/Goal</label>
+                        <div class="grid grid-cols-4 gap-2">
+                            ${['5k', '10k', '21k', '42k'].map(dist => `
+                                <button type="button" onclick="setTargetDist('${dist}')" id="dist-btn-${dist}" class="py-2.5 rounded-xl border text-xs font-bold transition-all ${state.user.targetDistance === dist ? 'bg-strava text-white border-strava shadow-md shadow-strava/30' : 'bg-slate-950 border-slate-800 text-slate-400'}">
+                                    ${dist.toUpperCase()}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+
+                    <!-- Baseline Pace -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">Estimasi Pace Santai (min/km)</label>
+                        <input type="text" id="input-pace" value="${state.user.baselinePace}" placeholder="contoh: 07:15" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-strava">
+                    </div>
+
+                    <button type="submit" class="w-full bg-strava hover:bg-strava-dark text-white font-bold py-3 rounded-xl text-xs shadow-lg shadow-strava/25 transition-all active:scale-95 flex items-center justify-center gap-2">
+                        <i data-lucide="save" class="w-4 h-4"></i> Simpan & Regenerasi Jadwal
+                    </button>
+                </form>
+            `;
+        }
+
+        // RENDER: STRAVA API SETTINGS & SYNC
+        function renderStravaSettings(container) {
+            container.innerHTML = `
+                <div class="space-y-1">
+                    <h2 class="text-lg font-bold text-white">Integrasi Strava API</h2>
+                    <p class="text-xs text-slate-400">Hubungkan akun Strava untuk sinkronisasi aktivitas otomatis.</p>
+                </div>
+
+                <!-- Integration Status Card -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                        <div class="flex items-center gap-2.5">
+                            <div class="p-2 rounded-xl bg-strava text-white">
+                                <i data-lucide="zap" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-white">Status Koneksi</h4>
+                                <p class="text-[10px] text-slate-400">${state.strava.isConnected ? 'Terhubung via OAuth 2.0' : 'Belum Terhubung'}</p>
+                            </div>
+                        </div>
+                        <button onclick="toggleStravaConnection()" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${state.strava.isConnected ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-strava text-white shadow-md shadow-strava/20'}">
+                            ${state.strava.isConnected ? 'Disconnect' : 'Connect Strava'}
+                        </button>
+                    </div>
+
+                    ${state.strava.isConnected ? `
+                        <!-- Athlete Profile Info -->
+                        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-slate-800 border border-strava flex items-center justify-center text-strava font-bold">
+                                ${state.strava.athleteName.charAt(0)}
+                            </div>
+                            <div class="flex-1">
+                                <h5 class="text-xs font-bold text-white">${state.strava.athleteName}</h5>
+                                <p class="text-[10px] text-slate-400">Strava ID: ${state.strava.athleteId}</p>
+                            </div>
+                            <span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20 font-medium">Active</span>
+                        </div>
+                    ` : ''}
+
+                    <!-- Credentials Configuration -->
+                    <div class="space-y-3 pt-1">
+                        <h5 class="text-xs font-bold text-slate-300">Konfigurasi API Credentials</h5>
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-400 mb-1">Client ID</label>
+                            <input type="text" id="strava-client-id" value="${state.strava.clientId || '128941'}" placeholder="Contoh: 123456" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-strava">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-medium text-slate-400 mb-1">Client Secret</label>
+                            <input type="password" id="strava-client-secret" value="${state.strava.clientSecret || '••••••••••••••••'}" placeholder="Client secret Strava Anda" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-strava">
+                        </div>
+                        <button onclick="saveStravaKeys()" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-2 rounded-xl text-xs border border-slate-700 transition-all">
+                            Simpan API Keys
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Simulated Webhook Sync Trigger -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 text-strava"></i> Manual Sync & Webhook Test
+                    </h4>
+                    <p class="text-[11px] text-slate-400 leading-relaxed">
+                        Fitur di bawah menstimulasikan pengiriman webhook dari server Strava setelah Anda selesai merekam lari di aplikasi Strava iOS.
+                    </p>
+                    <button onclick="triggerStravaSyncSimulation()" class="w-full bg-strava hover:bg-strava-dark text-white font-bold py-2.5 rounded-xl text-xs shadow-md shadow-strava/20 transition-all active:scale-95 flex items-center justify-center gap-2">
+                        <i data-lucide="arrow-down-to-line" class="w-4 h-4"></i> Simulasikan Lari Terbaru Strava
+                    </button>
+                </div>
+            `;
+        }
+
+        // ACTIONS & HANDLERS
+        function setTargetDist(dist) {
+            state.user.targetDistance = dist;
+            ['5k', '10k', '21k', '42k'].forEach(d => {
+                const btn = document.getElementById(`dist-btn-${d}`);
+                if (btn) {
+                    if (d === dist) {
+                        btn.className = 'py-2.5 rounded-xl border text-xs font-bold transition-all bg-strava text-white border-strava shadow-md shadow-strava/30';
+                    } else {
+                        btn.className = 'py-2.5 rounded-xl border text-xs font-bold transition-all bg-slate-950 border-slate-800 text-slate-400';
+                    }
+                }
+            });
+        }
+
+        function saveProgramSetup(e) {
+            e.preventDefault();
+            const name = document.getElementById('input-name').value;
+            const pace = document.getElementById('input-pace').value;
+            const level = document.querySelector('input[name="level"]:checked').value;
+
+            state.user.name = name;
+            state.user.baselinePace = pace;
+            state.user.level = level;
+            
+            // Force schedule regeneration based on new profile
+            state.schedule = [];
+            generateScheduleIfNeeded();
+            saveState();
+
+            showToast("Program Diperbarui", "Jadwal latihan disesuaikan dengan profil baru kamu!");
+            switchTab('schedule');
+        }
+
+        function toggleWorkoutStatus(id) {
+            const idx = state.schedule.findIndex(s => s.id === id);
+            if (idx !== -1) {
+                state.schedule[idx].status = state.schedule[idx].status === 'Selesai' ? 'Belum' : 'Selesai';
+                saveState();
+                renderSchedule(document.getElementById('app-content'));
+                lucide.createIcons();
+            }
+        }
+
+        function markManualComplete(id) {
+            const idx = state.schedule.findIndex(s => s.id === id);
+            if (idx !== -1) {
+                state.schedule[idx].status = 'Selesai';
+                saveState();
+                showToast("Selesai!", "Latihan berhasil ditandai selesai.");
+                switchTab('dashboard');
+            }
+        }
+
+        function resetSchedule() {
+            state.schedule.forEach(s => {
+                if (s.targetKm > 0) {
+                    s.status = 'Belum';
+                    s.stravaMatched = false;
+                }
+            });
+            saveState();
+            renderSchedule(document.getElementById('app-content'));
+            lucide.createIcons();
+            showToast("Reset Status", "Semua status jadwal dikembalikan ke Belum.");
+        }
+
+        function toggleStravaConnection() {
+            state.strava.isConnected = !state.strava.isConnected;
+            saveState();
+            showToast(
+                state.strava.isConnected ? "Strava Terhubung" : "Strava Disconnected",
+                state.strava.isConnected ? "Akun Strava Anda berhasil disinkronkan." : "Koneksi Strava dimatikan."
+            );
+            switchTab('strava');
+        }
+
+        function saveStravaKeys() {
+            const cid = document.getElementById('strava-client-id').value;
+            const secret = document.getElementById('strava-client-secret').value;
+            state.strava.clientId = cid;
+            state.strava.clientSecret = secret;
+            saveState();
+            showToast("API Credentials", "Credentials Strava berhasil disimpan di perangkat.");
+        }
+
+        function triggerStravaSyncSimulation() {
+            if (!state.strava.isConnected) {
+                state.strava.isConnected = true;
+                saveState();
+            }
+
+            // Find first pending workout with distance
+            const pending = state.schedule.find(s => s.status === 'Belum' && s.targetKm > 0);
+
+            let simulatedDist = pending ? pending.targetKm : 5.0;
+            let simulatedPace = state.user.baselinePace;
+
+            const newActivity = {
+                id: 'act-' + Date.now(),
+                title: pending ? `Lari ${pending.title}` : "Morning Easy Run",
+                distance: simulatedDist,
+                pace: simulatedPace,
+                date: "Hari Ini, " + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+            };
+
+            state.stravaActivities.unshift(newActivity);
+
+            // Auto match with schedule workout
+            if (pending) {
+                pending.status = 'Selesai';
+                pending.stravaMatched = true;
+                pending.actualKm = simulatedDist;
+                pending.actualPace = simulatedPace;
+            }
+
+            saveState();
+            showToast("Strava Webhook Received", `Aktivitas ${simulatedDist} km berhasil ditarik & mencocokkan jadwal!`, "zap");
+            switchTab('dashboard');
+        }
+
+        // Initialize App on Page Load
+        window.onload = function() {
+            generateScheduleIfNeeded();
+            updateHeaderBadge();
+            switchTab('dashboard');
+        };
+    </script>
+</body>
+</html>
